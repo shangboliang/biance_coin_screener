@@ -1,0 +1,19 @@
+# 币安POC监控工具依赖包
+# @author beck
+
+# 异步HTTP客户端
+aiohttp>=3.9.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Web界面
+streamlit>=1.30.0
+
+# 可视化
+plotly>=5.18.0
+
+# 数据库（Python标准库已包含sqlite3，无需额外安装）
+
+# 日志和工具（Python标准库已包含）
