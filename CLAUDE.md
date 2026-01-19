@@ -42,18 +42,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Configuration
 
 ### 代理设置
-如果在国内需要代理访问币安API: `127.0.0.1:7897`
+
+**币安API和Telegram使用独立的代理配置**
+
 在 `config.py` 中配置:
+
 ```python
-USE_PROXY = True  # 启用代理
-PROXY_HOST = "127.0.0.1"
-PROXY_PORT = 7897
+# 币安API代理
+BINANCE_USE_PROXY = True  # 启用/禁用
+BINANCE_PROXY_HOST = "127.0.0.1"
+BINANCE_PROXY_PORT = 7897
+
+# Telegram代理（独立配置，避免混淆）
+TELEGRAM_USE_PROXY = True  # 启用/禁用
+TELEGRAM_PROXY_HOST = "127.0.0.1"
+TELEGRAM_PROXY_PORT = 7897
 ```
 
-如果可以直接访问币安API（国外或其他方式），设置:
-```python
-USE_PROXY = False  # 禁用代理
-```
+常见场景：
+- 国内用户：两者都设为 `True`
+- 国外用户：两者都设为 `False`
+- 只需要币安API：只启用 `BINANCE_USE_PROXY`
+- 使用不同代理：设置不同的端口号
+
+详见 [PROXY_GUIDE.md](PROXY_GUIDE.md)
 
 ### Telegram设置
 需要设置环境变量:

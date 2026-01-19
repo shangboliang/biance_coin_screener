@@ -16,7 +16,8 @@ class TelegramNotifier:
     def __init__(
         self,
         bot_token: Optional[str] = None,
-        chat_id: Optional[str] = None
+        chat_id: Optional[str] = None,
+        use_proxy: bool = None
     ):
         """
         初始化Telegram通知器
@@ -24,16 +25,26 @@ class TelegramNotifier:
         Args:
             bot_token: Telegram Bot Token
             chat_id: Telegram Chat ID
+            use_proxy: 是否使用代理（None则使用配置文件设置）
         """
         self.bot_token = bot_token or Config.TELEGRAM_BOT_TOKEN
         self.chat_id = chat_id or Config.TELEGRAM_CHAT_ID
+
+        # 代理设置
+        if use_proxy is None:
+            self.use_proxy = Config.TELEGRAM_USE_PROXY
+        else:
+            self.use_proxy = use_proxy
+
+        self.proxy = Config.TELEGRAM_PROXY_URL if self.use_proxy else None
 
         if not self.bot_token or not self.chat_id:
             logger.warning("Telegram配置不完整，通知功能将不可用")
             self.enabled = False
         else:
             self.enabled = True
-            logger.info("Telegram通知服务已启用")
+            proxy_status = f"(代理: {self.proxy})" if self.use_proxy else "(直连)"
+            logger.info(f"Telegram通知服务已启用 {proxy_status}")
 
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
 
@@ -68,7 +79,11 @@ class TelegramNotifier:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
+                async with session.post(
+                    url,
+                    json=payload,
+                    proxy=self.proxy
+                ) as response:
                     if response.status == 200:
                         logger.info("✓ Telegram消息发送成功")
                         return True
@@ -90,17 +105,29 @@ class TelegramNotifier:
         Returns:
             是否发送成功
         """
+        # POC类型中文说明
+        poc_names = {
+            "MPOC": "当月POC",
+            "PMPOC": "上月POC",
+            "PPMPOC": "上上月POC",
+            "QPOC": "当季POC",
+            "PQPOC": "上季POC",
+            "PPQPOC": "上上季POC"
+        }
+
         # 准备消息数据
         symbol = event["symbol"]
         current_price = event["price_after"]
-        poc_level = event["poc_type"]
+        poc_type = event["poc_type"]
+        poc_name = poc_names.get(poc_type, poc_type)  # 获取中文名称
         poc_price = event["poc_value"]
         change_percent = event["change_percent"]
         timestamp = event["timestamp"]
         impact_emoji = event.get("impact_emoji", "🚀")
+        impact_level = event.get("impact_level", 1)
 
         # 额外信息
-        extra_info = f"{impact_emoji} 冲击力等级: {event.get('impact_level', 1)}/6"
+        extra_info = f"{impact_emoji} 冲击力等级: {impact_level}/6"
 
         # 构建消息
         message = f"""
@@ -108,7 +135,7 @@ class TelegramNotifier:
 
 <b>币种:</b> {symbol}
 <b>当前价格:</b> ${current_price:.6f}
-<b>突破关卡:</b> {poc_level}
+<b>突破关卡:</b> {poc_type} ({poc_name})
 <b>关卡价格:</b> ${poc_price:.6f}
 <b>涨幅:</b> {change_percent:+.2f}%
 <b>时间:</b> {timestamp}

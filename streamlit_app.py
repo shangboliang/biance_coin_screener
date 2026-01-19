@@ -53,34 +53,43 @@ def clean_poc_data(poc_data: Dict) -> Dict:
 
 
 def create_heatmap_data(poc_levels_list: List[Dict]) -> pd.DataFrame:
-    """创建热图数据"""
+    """
+    创建热图数据 - 计算价格距离POC的百分比
+    """
     data = []
     for poc_data in poc_levels_list:
         poc_levels = POCLevels(**clean_poc_data(poc_data))
 
-        # 计算每个POC的突破状态
+        # 需要展示的 6 个关卡
         poc_types = ["MPOC", "PMPOC", "PPMPOC", "QPOC", "PQPOC", "PPQPOC"]
+
         for poc_type in poc_types:
             poc_value = poc_levels.get_poc_value(poc_type)
-            if poc_value:
-                # 计算价格与POC的相对位置
-                if poc_levels.current_price > poc_value:
-                    status = 1  # 突破
-                elif abs(poc_levels.current_price - poc_value) / poc_value < 0.01:
-                    status = 0.5  # 接近
-                else:
-                    status = 0  # 下方
+
+            if poc_value and poc_value > 0:
+                # 核心逻辑：计算距离百分比
+                # (当前价 - POC价) / POC价 * 100
+                diff_percent = (poc_levels.current_price - poc_value) / poc_value * 100
 
                 data.append({
                     "symbol": poc_levels.symbol,
                     "poc_type": poc_type,
-                    "status": status
+                    "diff_percent": diff_percent,  # 用于颜色的数值
+                    "text": f"{diff_percent:+.2f}%"  # 用于显示的文本
+                })
+            else:
+                # 如果没有这个POC数据（新币），填 None
+                data.append({
+                    "symbol": poc_levels.symbol,
+                    "poc_type": poc_type,
+                    "diff_percent": None,
+                    "text": "N/A"
                 })
 
     if data:
         df = pd.DataFrame(data)
-        # 透视表
-        pivot = df.pivot(index="symbol", columns="poc_type", values="status")
+        # 透视表：行为币种，列为POC类型，值为百分比
+        pivot = df.pivot(index="symbol", columns="poc_type", values="diff_percent")
         return pivot
     return pd.DataFrame()
 
@@ -123,29 +132,28 @@ def show_statistics():
 
 
 def show_heatmap():
-    """显示全功能 POC 突破热图 (含 PMPOC/PPMPOC)"""
-    st.subheader("🗺️ POC 突破全景热图")
+    """显示距离百分比热力图 (Pandas 表格 + 强力筛选版)"""
+    st.subheader("🗺️ POC 距离概览 (表格热力图)")
 
-    # 1. 获取数据
+    # --- 1. 获取数据 ---
     poc_levels_list = db.get_all_latest_poc_levels()
     if not poc_levels_list:
         st.warning("暂无数据，请先运行监控")
         return
 
-    # 2. 高级过滤器区域
-    with st.expander("🔍 热力图筛选条件", expanded=True):
+    # --- 2. 筛选设置区域 ---
+    with st.expander("🔍 筛选与设置", expanded=True):
         col1, col2 = st.columns([1, 2])
 
         with col1:
-            # 基础搜索
-            search_query = st.text_input("搜索币种 (例如 BTC)", "").upper()
-            # 新增：强度筛选
-            min_breakthroughs = st.slider("最小突破关卡数", 0, 6, 0, help="筛选至少突破了几个POC关卡的币种")
+            # 基础搜索与设置
+            search_query = st.text_input("搜索币种", "").upper()
+            threshold = st.slider("颜色饱和阈值 (%)", 1, 50, 15, help="超过这个百分比显示为最红/最绿")
 
         with col2:
-            # 全功能逻辑筛选 (6大关卡全齐)
+            # [这里就是你之前丢失的下拉筛选]
             filter_conditions = st.multiselect(
-                "必须满足的关卡条件 (多选 = AND 关系):",
+                "只显示满足以下条件的币种:",
                 [
                     "价格 > QPOC (当季)",
                     "价格 > PQPOC (上季)",
@@ -156,12 +164,11 @@ def show_heatmap():
                 ],
                 default=[]
             )
+            # 显示数量
+            display_limit = st.slider("显示数量", 0, 500, 100)
 
-            # 显示数量限制
-            display_limit = st.slider("显示数量限制", 0, 500, 100)
-
-    # 3. 筛选逻辑映射表
-    # 将中文选项映射到内部 POC Key
+    # --- 3. 准备筛选逻辑 ---
+    # 映射中文选项到 POC 字段名
     condition_map = {
         "价格 > QPOC (当季)": "QPOC",
         "价格 > PQPOC (上季)": "PQPOC",
@@ -171,27 +178,21 @@ def show_heatmap():
         "价格 > PPMPOC (前月)": "PPMPOC"
     }
 
-    # 4. 执行数据过滤
+    # --- 4. 执行筛选 ---
     filtered_data = []
-
     for poc_data in poc_levels_list:
         p = POCLevels(**clean_poc_data(poc_data))
 
-        # --- A. 币种名称过滤 ---
+        # A. 搜索过滤
         if search_query and search_query not in p.symbol:
             continue
 
-        # --- B. 突破数量过滤 (强度) ---
-        if p.count_breakthroughs() < min_breakthroughs:
-            continue
-
-        # --- C. 具体关卡逻辑过滤 ---
+        # B. 逻辑条件过滤 (找回的功能)
         is_match = True
         for label in filter_conditions:
             target_poc_key = condition_map[label]
             val = p.get_poc_value(target_poc_key)
-
-            # 如果该 POC 不存在(新币) 或 价格没突破，则不匹配
+            # 如果没有 POC 数据或者价格在下方，则剔除
             if not val or p.current_price <= val:
                 is_match = False
                 break
@@ -201,56 +202,52 @@ def show_heatmap():
 
         filtered_data.append(poc_data)
 
-    if not filtered_data:
-        st.warning("没有符合筛选条件的币种。试试减少一些条件？")
-        return
-
-    # 5. 截取显示数量
+    # 数量限制
     if display_limit > 0:
         filtered_data = filtered_data[:display_limit]
 
-    # 6. 生成热图数据
-    heatmap_df = create_heatmap_data(filtered_data)
+    # --- 5. 生成表格数据 ---
+    data_list = []
+    for poc_data in filtered_data:
+        poc_levels = POCLevels(**clean_poc_data(poc_data))
+        row = {"交易对": poc_levels.symbol}
 
-    if heatmap_df.empty:
-        st.warning("数据生成失败")
+        # 计算百分比
+        for poc_type in ["MPOC", "PMPOC", "PPMPOC", "QPOC", "PQPOC", "PPQPOC"]:
+            val = poc_levels.get_poc_value(poc_type)
+            if val and val > 0:
+                diff = (poc_levels.current_price - val) / val * 100
+                row[poc_type] = diff
+            else:
+                row[poc_type] = None
+        data_list.append(row)
+
+    if not data_list:
+        st.warning("没有符合条件的币种")
         return
 
-    # 7. 绘制热图
-    # 动态高度：根据币种数量自动拉长画布
-    dynamic_height = max(500, len(heatmap_df) * 30)
+    # --- 6. 渲染美化表格 ---
+    df = pd.DataFrame(data_list)
+    df = df.set_index("交易对")
 
-    fig = go.Figure(data=go.Heatmap(
-        z=heatmap_df.values,
-        x=heatmap_df.columns,  # 应该显示 MPOC, PMPOC... PPQPOC 全部列
-        y=heatmap_df.index,
-        colorscale=[
-            [0.0, "#ef553b"],  # 红: 下方
-            [0.5, "#ffc107"],  # 黄: 接近
-            [1.0, "#00cc96"]  # 绿: 突破
-        ],
-        showscale=False,
-        xgap=3,
-        ygap=3,
-        hoverongaps=False
-    ))
+    # 确保列顺序正确
+    cols = ["MPOC", "PMPOC", "PPMPOC", "QPOC", "PQPOC", "PPQPOC"]
+    valid_cols = [c for c in cols if c in df.columns]
 
-    fig.update_layout(
-        title=f"筛选结果: {len(heatmap_df)} 个币种 (按字母顺序)",
-        xaxis_title="",
-        yaxis_title="",
-        height=dynamic_height,
-        margin=dict(l=60, r=20, t=50, b=20),
-        xaxis=dict(
-            side="top",
-            tickfont=dict(size=14, family="Arial Black")
-        ),
-        yaxis=dict(
-            tickfont=dict(size=12)
+    st.dataframe(
+        df[valid_cols].style
+        .format("{:+.2f}%", na_rep="N/A")
+        .background_gradient(
+            cmap="RdYlGn",
+            vmin=-threshold,
+            vmax=threshold,
+            axis=None
         )
+        .highlight_null(color='#f0f2f6'),
+        use_container_width=True,
+        height=600
     )
 
-    st.plotly_chart(fig, use_container_width=True)
 
 def show_poc_table():
     """显示POC数据表"""
@@ -609,6 +606,11 @@ def main():
             st.rerun()
 
         st.markdown("---")
+
+        # 代理状态显示
+        binance_proxy_status = "启用" if Config.BINANCE_USE_PROXY else "禁用"
+        telegram_proxy_status = "启用" if Config.TELEGRAM_USE_PROXY else "禁用"
+
         st.info(f"""
         **系统信息**
 
@@ -616,7 +618,9 @@ def main():
 
         监控间隔: {Config.MONITOR_INTERVAL}秒
 
-        代理: {Config.PROXY_URL}
+        币安API代理: {binance_proxy_status}
+
+        Telegram代理: {telegram_proxy_status}
         """)
 
     # 显示统计信息

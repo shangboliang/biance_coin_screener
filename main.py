@@ -47,10 +47,10 @@ async def test_api_connection():
     """测试API连接"""
     print("\n" + "="*60)
     print("测试币安API连接...")
-    print(f"代理状态: {'启用' if Config.USE_PROXY else '禁用'}")
+    print(f"币安API代理: {'启用' if Config.BINANCE_USE_PROXY else '禁用'}")
     print("="*60)
 
-    async with BinanceAPIClient(use_proxy=Config.USE_PROXY) as client:
+    async with BinanceAPIClient(use_proxy=Config.BINANCE_USE_PROXY) as client:
         # 测试连接
         if await client.test_connectivity():
             logger.info("✓ 币安API连接成功")
@@ -77,6 +77,7 @@ async def test_telegram():
     """测试Telegram连接"""
     print("\n" + "="*60)
     print("测试Telegram连接...")
+    print(f"Telegram代理: {'启用' if Config.TELEGRAM_USE_PROXY else '禁用'}")
     print("="*60)
 
     if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_CHAT_ID:
@@ -93,10 +94,10 @@ async def run_monitor_once():
     """运行一次监控"""
     print("\n" + "="*60)
     print("运行POC监控（单次）...")
-    print(f"代理状态: {'启用' if Config.USE_PROXY else '禁用'}")
+    print(f"币安API代理: {'启用' if Config.BINANCE_USE_PROXY else '禁用'}")
     print("="*60)
 
-    monitor = POCMonitor(use_proxy=Config.USE_PROXY)
+    monitor = POCMonitor(use_proxy=Config.BINANCE_USE_PROXY)
     await monitor.initialize()
 
     try:
@@ -122,12 +123,12 @@ async def run_monitor_loop():
     """运行持续监控"""
     print("\n" + "="*60)
     print("启动持续监控模式...")
-    print(f"代理状态: {'启用' if Config.USE_PROXY else '禁用'}")
+    print(f"币安API代理: {'启用' if Config.BINANCE_USE_PROXY else '禁用'}")
     print(f"轮询间隔: {Config.MONITOR_INTERVAL}秒")
     print("按 Ctrl+C 停止")
     print("="*60)
 
-    monitor = POCMonitor(use_proxy=Config.USE_PROXY)
+    monitor = POCMonitor(use_proxy=Config.BINANCE_USE_PROXY)
     await monitor.initialize()
 
     try:
@@ -142,10 +143,10 @@ async def calculate_all_pocs():
     """计算所有交易对的POC"""
     print("\n" + "="*60)
     print("计算所有交易对的POC...")
-    print(f"代理状态: {'启用' if Config.USE_PROXY else '禁用'}")
+    print(f"币安API代理: {'启用' if Config.BINANCE_USE_PROXY else '禁用'}")
     print("="*60)
 
-    monitor = POCMonitor(use_proxy=Config.USE_PROXY)
+    monitor = POCMonitor(use_proxy=Config.BINANCE_USE_PROXY)
     await monitor.initialize()
 
     try:

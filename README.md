@@ -42,17 +42,29 @@ pip install -r requirements.txt
 ### 2. 配置
 
 #### 代理设置（可选）
-如果你在国内需要代理访问币安API，在 `config.py` 中配置：
+
+**币安API和Telegram使用独立的代理配置**
+
+在 `config.py` 中配置：
+
 ```python
-USE_PROXY = True  # 启用代理
-PROXY_HOST = "127.0.0.1"
-PROXY_PORT = 7897
+# 币安API代理
+BINANCE_USE_PROXY = True  # 启用/禁用
+BINANCE_PROXY_HOST = "127.0.0.1"
+BINANCE_PROXY_PORT = 7897
+
+# Telegram代理（独立配置）
+TELEGRAM_USE_PROXY = True  # 启用/禁用
+TELEGRAM_PROXY_HOST = "127.0.0.1"
+TELEGRAM_PROXY_PORT = 7897
 ```
 
-如果你可以直接访问币安API（例如在国外），设置为：
-```python
-USE_PROXY = False  # 禁用代理
-```
+常见场景：
+- **国内用户**：两者都设为 `True`
+- **国外用户**：两者都设为 `False`
+- **只需要访问币安**：只启用 `BINANCE_USE_PROXY`
+
+详见 [PROXY_GUIDE.md](PROXY_GUIDE.md)
 
 #### Telegram设置（可选）
 设置环境变量以启用通知功能：

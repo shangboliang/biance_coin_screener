@@ -12,11 +12,11 @@ class Config:
     BINANCE_BASE_URL = "https://fapi.binance.com"
     BINANCE_TEST_URL = "https://demo-fapi.binance.com"
 
-    # 代理配置
-    USE_PROXY = True  # 设置为False则不使用代理，True则使用代理
-    PROXY_HOST = "127.0.0.1"
-    PROXY_PORT = 7897
-    PROXY_URL = f"http://{PROXY_HOST}:{PROXY_PORT}"
+    # 币安API代理配置
+    BINANCE_USE_PROXY = True  # 设置为False则不使用代理，True则使用代理
+    BINANCE_PROXY_HOST = "127.0.0.1"
+    BINANCE_PROXY_PORT = 7897
+    BINANCE_PROXY_URL = f"http://{BINANCE_PROXY_HOST}:{BINANCE_PROXY_PORT}"
 
     # API限制
     MAX_KLINES_LIMIT = 500  # 单次请求最大K线数
@@ -32,6 +32,12 @@ class Config:
     # ==================== Telegram配置 ====================
     TELEGRAM_BOT_TOKEN: Optional[str] = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID: Optional[str] = os.getenv("TELEGRAM_CHAT_ID", "")
+
+    # Telegram代理配置（独立于币安API代理）
+    TELEGRAM_USE_PROXY = True  # 设置为False则不使用代理，True则使用代理
+    TELEGRAM_PROXY_HOST = "127.0.0.1"
+    TELEGRAM_PROXY_PORT = 7897
+    TELEGRAM_PROXY_URL = f"http://{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}"
 
     # Telegram消息模板
     TELEGRAM_MESSAGE_TEMPLATE = """
@@ -63,7 +69,7 @@ class Config:
 
     # ==================== 监控配置 ====================
     # 监控轮询间隔（秒）
-    MONITOR_INTERVAL = 60  # 1分钟
+    MONITOR_INTERVAL = 600  # 1分钟
 
     # 并发请求数（降低以避免触发速率限制）
     MAX_CONCURRENT_REQUESTS = 5  # 从50降低到5
@@ -114,9 +120,15 @@ class Config:
         return True
 
     @classmethod
-    def get_proxy_config(cls) -> dict:
-        """获取代理配置"""
-        return {
-            "http": cls.PROXY_URL,
-            "https": cls.PROXY_URL
-        }
+    def get_binance_proxy_config(cls) -> Optional[str]:
+        """获取币安API代理配置"""
+        if cls.BINANCE_USE_PROXY:
+            return cls.BINANCE_PROXY_URL
+        return None
+
+    @classmethod
+    def get_telegram_proxy_config(cls) -> Optional[str]:
+        """获取Telegram代理配置"""
+        if cls.TELEGRAM_USE_PROXY:
+            return cls.TELEGRAM_PROXY_URL
+        return None

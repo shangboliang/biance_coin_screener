@@ -24,7 +24,7 @@ class BinanceAPIClient:
         """
         self.base_url = Config.BINANCE_BASE_URL
         self.use_proxy = use_proxy
-        self.proxy = Config.PROXY_URL if use_proxy else None
+        self.proxy = Config.BINANCE_PROXY_URL if use_proxy else None
         self.session: Optional[aiohttp.ClientSession] = None
         self.current_weight = 0  # 当前使用的权重
         self.last_weight_reset = datetime.utcnow()  # 上次重置时间
