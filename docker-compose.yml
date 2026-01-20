@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  # 主监控服务（持续监控模式）
+  poc-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: poc_monitor
+    restart: unless-stopped
+
+    # 环境变量配置
+    environment:
+      # Telegram通知配置
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+      # Web访问控制
+      - WEB_PASSWORD=${WEB_PASSWORD:-beck}
+      - WEB_SESSION_TIMEOUT=${WEB_SESSION_TIMEOUT:-3600}
+
+      # 代理配置（国内服务器需要启用）
+      # 国外服务器保持默认false，国内服务器设置为true
+      - BINANCE_USE_PROXY=${BINANCE_USE_PROXY:-false}
+      - BINANCE_PROXY_HOST=${BINANCE_PROXY_HOST:-127.0.0.1}
+      - BINANCE_PROXY_PORT=${BINANCE_PROXY_PORT:-7897}
+      - TELEGRAM_USE_PROXY=${TELEGRAM_USE_PROXY:-false}
+      - TELEGRAM_PROXY_HOST=${TELEGRAM_PROXY_HOST:-127.0.0.1}
+      - TELEGRAM_PROXY_PORT=${TELEGRAM_PROXY_PORT:-7897}
+
+    # 数据持久化
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.py:/app/config.py:ro  # 只读配置文件
+
+    # 网络配置
+    networks:
+      - poc_network
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('/app/data/poc_monitor.db').execute('SELECT 1')"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Web界面服务（Streamlit）
+  poc-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: poc_web
+    restart: unless-stopped
+
+    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+
+    # 环境变量配置
+    environment:
+      - WEB_PASSWORD=${WEB_PASSWORD:-beck}
+      - WEB_SESSION_TIMEOUT=${WEB_SESSION_TIMEOUT:-3600}
+
+    # 端口映射
+    ports:
+      - "8501:8501"
+
+    # 数据持久化（只读）
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs:ro
+
+    # 依赖关系（等待监控服务先启动）
+    depends_on:
+      - poc-monitor
+
+    # 网络配置
+    networks:
+      - poc_network
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Nginx反向代理（可选，用于HTTPS和负载均衡）
+  nginx:
+    image: nginx:alpine
+    container_name: poc_nginx
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+
+    depends_on:
+      - poc-web
+
+    networks:
+      - poc_network
+
+    # 仅在需要HTTPS时启用
+    profiles:
+      - with-nginx
+
+networks:
+  poc_network:
+    driver: bridge
+
+# 数据卷（可选，使用命名卷代替绑定挂载）
+volumes:
+  poc_data:
+  poc_logs:

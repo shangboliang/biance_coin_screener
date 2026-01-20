@@ -14,6 +14,7 @@ from database import DatabaseManager
 from monitor import POCMonitor
 from config import Config
 from poc_calculator import POCLevels
+from auth import WebAuthenticator
 
 # 页面配置
 st.set_page_config(
@@ -21,6 +22,13 @@ st.set_page_config(
     page_icon=Config.STREAMLIT_PAGE_ICON,
     layout=Config.STREAMLIT_LAYOUT
 )
+
+# ==================== 访问控制 ====================
+# 在所有其他代码之前进行认证检查
+if Config.ENABLE_WEB_AUTH:
+    authenticator = WebAuthenticator()
+    if not authenticator.require_authentication():
+        st.stop()  # 如果未认证，停止执行后续代码
 
 # 初始化数据库
 @st.cache_resource

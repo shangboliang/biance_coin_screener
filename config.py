@@ -13,9 +13,10 @@ class Config:
     BINANCE_TEST_URL = "https://demo-fapi.binance.com"
 
     # 币安API代理配置
-    BINANCE_USE_PROXY = True  # 设置为False则不使用代理，True则使用代理
-    BINANCE_PROXY_HOST = "127.0.0.1"
-    BINANCE_PROXY_PORT = 7897
+    # 通过环境变量控制，默认False（国外服务器不需要代理）
+    BINANCE_USE_PROXY = os.getenv("BINANCE_USE_PROXY", "False").lower() == "true"
+    BINANCE_PROXY_HOST = os.getenv("BINANCE_PROXY_HOST", "127.0.0.1")
+    BINANCE_PROXY_PORT = int(os.getenv("BINANCE_PROXY_PORT", "7897"))
     BINANCE_PROXY_URL = f"http://{BINANCE_PROXY_HOST}:{BINANCE_PROXY_PORT}"
 
     # API限制
@@ -34,9 +35,10 @@ class Config:
     TELEGRAM_CHAT_ID: Optional[str] = os.getenv("TELEGRAM_CHAT_ID", "")
 
     # Telegram代理配置（独立于币安API代理）
-    TELEGRAM_USE_PROXY = True  # 设置为False则不使用代理，True则使用代理
-    TELEGRAM_PROXY_HOST = "127.0.0.1"
-    TELEGRAM_PROXY_PORT = 7897
+    # 通过环境变量控制，默认False（国外服务器不需要代理）
+    TELEGRAM_USE_PROXY = os.getenv("TELEGRAM_USE_PROXY", "False").lower() == "true"
+    TELEGRAM_PROXY_HOST = os.getenv("TELEGRAM_PROXY_HOST", "127.0.0.1")
+    TELEGRAM_PROXY_PORT = int(os.getenv("TELEGRAM_PROXY_PORT", "7897"))
     TELEGRAM_PROXY_URL = f"http://{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}"
 
     # Telegram消息模板
@@ -94,6 +96,19 @@ class Config:
 
     # 热图配色方案
     HEATMAP_COLORSCALE = "RdYlGn"
+
+    # ==================== Web访问控制配置 ====================
+    # Web界面访问密码（通过环境变量设置，默认密码：beck）
+    WEB_PASSWORD: Optional[str] = os.getenv("WEB_PASSWORD", "beck")
+
+    # 会话超时时间（秒）- 默认1小时
+    WEB_SESSION_TIMEOUT = int(os.getenv("WEB_SESSION_TIMEOUT", "3600"))
+
+    # IP白名单（可选，逗号分隔）
+    IP_WHITELIST: Optional[str] = os.getenv("IP_WHITELIST", "")
+
+    # 是否启用访问控制
+    ENABLE_WEB_AUTH = True
 
     # ==================== 冲击力等级配置 ====================
     IMPACT_LEVELS = {
