@@ -28,7 +28,8 @@ class Config:
 
     # ==================== 数据库配置 ====================
     DB_NAME = "poc_monitor.db"
-    DB_PATH = os.path.join(os.path.dirname(__file__), DB_NAME)
+    # [关键修改] 这里加入了 "data" 目录，确保数据库存放在挂载卷中
+    DB_PATH = os.path.join(os.path.dirname(__file__), "data", DB_NAME)
 
     # ==================== Telegram配置 ====================
     TELEGRAM_BOT_TOKEN: Optional[str] = os.getenv("TELEGRAM_BOT_TOKEN", "")
