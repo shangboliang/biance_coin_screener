@@ -14,7 +14,7 @@ class Config:
 
     # 币安API代理配置
     # 通过环境变量控制，默认False（国外服务器不需要代理）
-    BINANCE_USE_PROXY = True
+    BINANCE_USE_PROXY = os.getenv("BINANCE_USE_PROXY", "False").lower() == "true"
     BINANCE_PROXY_HOST = os.getenv("BINANCE_PROXY_HOST", "127.0.0.1")
     BINANCE_PROXY_PORT = int(os.getenv("BINANCE_PROXY_PORT", "7897"))
     BINANCE_PROXY_URL = f"http://{BINANCE_PROXY_HOST}:{BINANCE_PROXY_PORT}"
@@ -37,7 +37,7 @@ class Config:
 
     # Telegram代理配置（独立于币安API代理）
     # 通过环境变量控制，默认False（国外服务器不需要代理）
-    TELEGRAM_USE_PROXY = True
+    TELEGRAM_USE_PROXY = os.getenv("TELEGRAM_USE_PROXY", "False").lower() == "true"
     TELEGRAM_PROXY_HOST = os.getenv("TELEGRAM_PROXY_HOST", "127.0.0.1")
     TELEGRAM_PROXY_PORT = int(os.getenv("TELEGRAM_PROXY_PORT", "7897"))
     TELEGRAM_PROXY_URL = f"http://{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}"
