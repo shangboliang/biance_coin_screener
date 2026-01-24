@@ -29,6 +29,9 @@ class POCLevels:
     # 全局POC（用于填充缺失数据）
     global_poc: Optional[float] = None
 
+    # [关键] 默认值设为 9999 (代表老币)，防止误报
+    days_active: int = 9999
+
     timestamp: str = ""
 
     def __post_init__(self):
@@ -47,6 +50,7 @@ class POCLevels:
             "pqpoc": self.pqpoc,
             "ppqpoc": self.ppqpoc,
             "global_poc": self.global_poc,
+            "days_active": self.days_active, # [关键] 确保写入字典
             "timestamp": self.timestamp
         }
 
@@ -106,33 +110,12 @@ class POCCalculator:
 
     @staticmethod
     def calculate_tp(high: float, low: float, close: float) -> float:
-        """
-        计算典型价格 (Typical Price)
-        TP = (H + L + C) / 3
-
-        Args:
-            high: 最高价
-            low: 最低价
-            close: 收盘价
-
-        Returns:
-            典型价格
-        """
+        """计算典型价格 (Typical Price)"""
         return (high + low + close) / 3.0
 
     @staticmethod
     def calculate_vwap(klines: List[List]) -> Optional[float]:
-        """
-        计算基于典型价格的VWAP
-        VWAP = Σ(TP × Volume) / Σ(Volume)
-
-        Args:
-            klines: K线数据列表
-                每条K线格式: [开盘时间, 开盘价, 最高价, 最低价, 收盘价, 成交量, ...]
-
-        Returns:
-            VWAP值
-        """
+        """计算基于典型价格的VWAP"""
         if not klines:
             return None
 
@@ -141,9 +124,8 @@ class POCCalculator:
 
         for kline in klines:
             try:
-                # 解析K线数据
                 # open_time = kline[0]
-                open_price = float(kline[1])
+                # open_price = float(kline[1])
                 high = float(kline[2])
                 low = float(kline[3])
                 close = float(kline[4])
@@ -161,41 +143,13 @@ class POCCalculator:
                 total_volume += volume
 
             except (IndexError, ValueError, TypeError) as e:
-                logger.warning(f"跳过无效K线数据: {e}")
+                # logger.warning(f"跳过无效K线数据: {e}")
                 continue
 
         if total_volume == 0:
             return None
 
-        vwap = total_tp_volume / total_volume
-        return vwap
-
-    @staticmethod
-    def calculate_poc_for_period(klines: List[List]) -> Optional[float]:
-        """
-        计算指定周期的POC（等同于VWAP终点值）
-
-        Args:
-            klines: K线数据列表
-
-        Returns:
-            POC值
-        """
-        return POCCalculator.calculate_vwap(klines)
-
-    @staticmethod
-    def get_last_vwap_value(klines: List[List]) -> Optional[float]:
-        """
-        获取周期结束时的VWAP终点值
-        这个值作为历史周期的POC
-
-        Args:
-            klines: K线数据列表
-
-        Returns:
-            VWAP终点值
-        """
-        return POCCalculator.calculate_vwap(klines)
+        return total_tp_volume / total_volume
 
     @staticmethod
     def calculate_all_pocs(
@@ -206,26 +160,28 @@ class POCCalculator:
         prev_quarter_klines: List[List],
         prev_prev_quarter_klines: List[List],
         global_klines: List[List]
-    ) -> Dict[str, Optional[float]]:
+    ) -> Dict[str, any]:
         """
-        计算所有POC关卡
-
-        Args:
-            current_month_klines: 当月K线
-            prev_month_klines: 上月K线
-            prev_prev_month_klines: 上上月K线
-            current_quarter_klines: 当季K线
-            prev_quarter_klines: 上季K线
-            prev_prev_quarter_klines: 上上季K线
-            global_klines: 全局K线（开盘至今）
-
-        Returns:
-            POC字典
+        计算所有POC关卡 (包含上市天数)
         """
-        # 计算全局POC（用于填充缺失值）
+        # ==================== 1. 计算上市天数 ====================
+        days_active = 9999
+        if global_klines and len(global_klines) > 0:
+            try:
+                # global_klines[0][0] 是第一根K线的开盘时间戳 (毫秒)
+                listing_timestamp = global_klines[0][0]
+                current_timestamp = datetime.utcnow().timestamp() * 1000
+
+                # 毫秒 -> 天
+                days_diff = (current_timestamp - listing_timestamp) / (1000 * 60 * 60 * 24)
+                days_active = int(days_diff)
+            except Exception as e:
+                logger.error(f"计算上市天数失败: {e}")
+                days_active = 9999
+
+        # ==================== 2. 计算POC ====================
         global_poc = POCCalculator.calculate_vwap(global_klines)
 
-        # 计算各周期POC
         pocs = {
             "mpoc": POCCalculator.calculate_vwap(current_month_klines),
             "pmpoc": POCCalculator.calculate_vwap(prev_month_klines),
@@ -233,63 +189,18 @@ class POCCalculator:
             "qpoc": POCCalculator.calculate_vwap(current_quarter_klines),
             "pqpoc": POCCalculator.calculate_vwap(prev_quarter_klines),
             "ppqpoc": POCCalculator.calculate_vwap(prev_prev_quarter_klines),
-            "global_poc": global_poc
+            "global_poc": global_poc,
+            "days_active": days_active  # [关键] 必须要把算出来的天数放进去！
         }
 
-        # 用全局POC填充缺失值
-        for key in ["mpoc", "pmpoc", "ppmpoc", "qpoc", "pqpoc", "ppqpoc"]:
-            if pocs[key] is None:
-                pocs[key] = global_poc
-                logger.debug(f"{key} 缺失，使用全局POC填充: {global_poc}")
+        # 注意：这里已经删除了 "如果为None则填充global_poc" 的逻辑
+        # 保持 None 状态，以便前端识别新币没有历史数据
 
         return pocs
 
     @staticmethod
-    def check_price_proximity(price: float, poc_value: float, threshold: float = 0.01) -> bool:
-        """
-        检查价格是否接近POC关卡
-
-        Args:
-            price: 当前价格
-            poc_value: POC值
-            threshold: 阈值百分比（默认1%）
-
-        Returns:
-            是否接近
-        """
-        if poc_value == 0:
-            return False
-
-        diff_percent = abs(price - poc_value) / poc_value
-        return diff_percent <= threshold
-
-    @staticmethod
-    def check_crossover(prev_price: float, current_price: float, poc_value: float) -> bool:
-        """
-        检查是否发生向上穿透
-
-        Args:
-            prev_price: 上一次价格
-            current_price: 当前价格
-            poc_value: POC值
-
-        Returns:
-            是否发生向上穿透
-        """
-        # 之前在下方，现在在上方
-        return prev_price < poc_value <= current_price
-
-    @staticmethod
     def calculate_impact_level(poc_levels: POCLevels) -> Dict[str, any]:
-        """
-        计算冲击力等级
-
-        Args:
-            poc_levels: POC关卡数据
-
-        Returns:
-            冲击力等级信息
-        """
+        """计算冲击力等级"""
         from config import Config
 
         breakthrough_count = poc_levels.count_breakthroughs()
@@ -305,3 +216,12 @@ class POCCalculator:
             "label": level_info["label"],
             "color": level_info["color"]
         }
+
+    # 兼容性方法 (保留)
+    @staticmethod
+    def check_crossover_type(prev_price: float, current_price: float, poc_value: float) -> Optional[str]:
+        if prev_price < poc_value <= current_price:
+            return "UP"
+        if prev_price > poc_value >= current_price:
+            return "DOWN"
+        return None

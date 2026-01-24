@@ -43,7 +43,12 @@ class POCMonitor:
 
     async def calculate_symbol_poc(self, symbol: str) -> Optional[POCLevels]:
         """
-        计算单个交易对的所有POC关卡
+        计算单个交易对的所有POC关卡 (优化版：减少API请求次数)
+
+        优化逻辑：
+        不再分别请求7个时间段的K线（原逻辑8次请求），
+        改为只请求1次全量（365天）K线，然后在内存中进行切片分类。
+        总请求数降为：1次价格 + 1次K线 = 2次。
 
         Args:
             symbol: 交易对符号
@@ -52,41 +57,56 @@ class POCMonitor:
             POC关卡数据
         """
         try:
-            # 获取当前价格
+            # 1. 获取当前价格 (请求 #1)
             current_price = await self.api_client.get_current_price(symbol)
             if not current_price:
                 logger.warning(f"{symbol}: 无法获取当前价格")
                 return None
 
-            # 获取各周期时间范围
-            current_month_range = self.api_client.get_month_range(0)
-            prev_month_range = self.api_client.get_month_range(1)
-            prev_prev_month_range = self.api_client.get_month_range(2)
+            # 2. 获取各周期的时间戳范围 (本地计算，不消耗API)
+            # 格式: (start_timestamp, end_timestamp)
+            time_ranges = {
+                "mpoc": self.api_client.get_month_range(0),  # 当月
+                "pmpoc": self.api_client.get_month_range(1),  # 上月
+                "ppmpoc": self.api_client.get_month_range(2),  # 前月
+                "qpoc": self.api_client.get_quarter_range(0),  # 当季
+                "pqpoc": self.api_client.get_quarter_range(1),  # 上季
+                "ppqpoc": self.api_client.get_quarter_range(2),  # 前季
+            }
 
-            current_quarter_range = self.api_client.get_quarter_range(0)
-            prev_quarter_range = self.api_client.get_quarter_range(1)
-            prev_prev_quarter_range = self.api_client.get_quarter_range(2)
+            # 3. 获取全局K线数据 (请求 #2，一次拉取365天)
+            global_start, global_end = self.api_client.calculate_time_range(365)
+            global_klines = await self.api_client.get_klines_batch(symbol, "1d", global_start, global_end)
 
-            # 获取全局时间范围（使用365天作为全局范围）
-            global_range = self.api_client.calculate_time_range(365)
+            if not global_klines:
+                # 如果完全没K线数据，说明可能是刚上架几秒钟或API错误
+                return None
 
-            # 并发获取所有K线数据
-            tasks = [
-                self.api_client.get_klines_batch(symbol, "1d", *current_month_range),
-                self.api_client.get_klines_batch(symbol, "1d", *prev_month_range),
-                self.api_client.get_klines_batch(symbol, "1d", *prev_prev_month_range),
-                self.api_client.get_klines_batch(symbol, "1d", *current_quarter_range),
-                self.api_client.get_klines_batch(symbol, "1d", *prev_quarter_range),
-                self.api_client.get_klines_batch(symbol, "1d", *prev_prev_quarter_range),
-                self.api_client.get_klines_batch(symbol, "1d", *global_range),
-            ]
+            # 4. 内存切片：根据时间戳将 global_klines 分配到各个周期
+            # Binance K线格式: [open_time, open, high, low, close, volume, ...]
+            # k[0] 是开盘时间戳
 
-            klines_results = await asyncio.gather(*tasks)
+            sliced_data = {}
+            for key, (start_ts, end_ts) in time_ranges.items():
+                # 列表推导式筛选，速度极快
+                sliced_data[key] = [
+                    k for k in global_klines
+                    if start_ts <= k[0] <= end_ts
+                ]
 
-            # 计算所有POC
-            pocs = POCCalculator.calculate_all_pocs(*klines_results)
+            # 5. 计算所有POC
+            # 注意参数顺序：当月, 上月, 前月, 当季, 上季, 前季, 全局
+            pocs = POCCalculator.calculate_all_pocs(
+                sliced_data["mpoc"],
+                sliced_data["pmpoc"],
+                sliced_data["ppmpoc"],
+                sliced_data["qpoc"],
+                sliced_data["pqpoc"],
+                sliced_data["ppqpoc"],
+                global_klines
+            )
 
-            # 创建POC关卡对象
+            # 6. 创建POC关卡对象
             poc_levels = POCLevels(
                 symbol=symbol,
                 current_price=current_price,
@@ -96,10 +116,11 @@ class POCMonitor:
                 qpoc=pocs.get("qpoc"),
                 pqpoc=pocs.get("pqpoc"),
                 ppqpoc=pocs.get("ppqpoc"),
-                global_poc=pocs.get("global_poc")
+                global_poc=pocs.get("global_poc"),
+                days_active=pocs.get("days_active", 9999)  # 传递新币天数
             )
 
-            logger.debug(f"{symbol}: POC计算完成")
+            logger.debug(f"{symbol}: POC计算完成 (优化模式)")
             return poc_levels
 
         except Exception as e:
@@ -157,58 +178,54 @@ class POCMonitor:
         return all_poc_levels
 
     def check_crossovers(self, symbol: str, current_poc_levels: POCLevels) -> List[Dict]:
-        """
-        检查是否发生POC穿透
-
-        Args:
-            symbol: 交易对符号
-            current_poc_levels: 当前POC关卡
-
-        Returns:
-            穿透事件列表
-        """
         events = []
-
-        # 获取上一次的价格
         prev_price = self.db.get_latest_price(symbol)
+
         if prev_price is None:
-            # 第一次监控，保存当前价格
             self.db.save_price(symbol, current_poc_levels.current_price)
             return events
 
         current_price = current_poc_levels.current_price
-
-        # 检查每个POC关卡
         poc_types = ["MPOC", "PMPOC", "PPMPOC", "QPOC", "PQPOC", "PPQPOC"]
 
         for poc_type in poc_types:
             poc_value = current_poc_levels.get_poc_value(poc_type)
 
-            if poc_value and POCCalculator.check_crossover(prev_price, current_price, poc_value):
-                # 发生向上穿透
-                change_percent = ((current_price - prev_price) / prev_price) * 100
+            # 使用新的 check_crossover_type 方法
+            if poc_value:
+                # 注意：这里调用的是修改后的方法名
+                cross_type = POCCalculator.check_crossover_type(prev_price, current_price, poc_value)
 
-                # 计算冲击力等级
-                impact_info = POCCalculator.calculate_impact_level(current_poc_levels)
+                if cross_type:
+                    change_percent = ((current_price - prev_price) / prev_price) * 100
+                    impact_info = POCCalculator.calculate_impact_level(current_poc_levels)
 
-                event = {
-                    "symbol": symbol,
-                    "poc_type": poc_type,
-                    "poc_value": poc_value,
-                    "price_before": prev_price,
-                    "price_after": current_price,
-                    "change_percent": change_percent,
-                    "impact_level": impact_info["count"],
-                    "impact_emoji": impact_info["emoji"],
-                    "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                }
+                    # 根据方向定义 Emoji 和 描述
+                    if cross_type == "UP":
+                        direction_emoji = "🚀"  # 火箭
+                        action_label = "向上突破"
+                    else:
+                        direction_emoji = "🔻"  # 向下红色倒三角
+                        action_label = "向下跌破"
 
-                events.append(event)
-                logger.info(f"🚀 检测到穿透: {symbol} - {poc_type} @ ${poc_value:.6f}")
+                    event = {
+                        "symbol": symbol,
+                        "poc_type": poc_type,
+                        "poc_value": poc_value,
+                        "price_before": prev_price,
+                        "price_after": current_price,
+                        "change_percent": change_percent,
+                        "impact_level": impact_info["count"],
+                        # 组合 Emoji: 方向 + 冲击力
+                        "impact_emoji": f"{direction_emoji} {impact_info['emoji']}",
+                        "cross_type": cross_type,  # 新增字段记录方向
+                        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                    }
 
-        # 更新当前价格
+                    events.append(event)
+                    logger.info(f"{direction_emoji} 检测到{action_label}: {symbol} - {poc_type} @ ${poc_value:.6f}")
+
         self.db.save_price(symbol, current_price)
-
         return events
 
     async def monitor_once(self, symbols: Optional[List[str]] = None) -> Dict[str, any]:

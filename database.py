@@ -4,6 +4,7 @@ SQLite Database Manager for POC Monitor
 """
 import sqlite3
 import logging
+import os  # [新增] 用于创建目录
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from contextlib import contextmanager
@@ -23,6 +24,16 @@ class DatabaseManager:
             db_path: 数据库文件路径
         """
         self.db_path = db_path
+
+        # [新增] 自动检测并创建数据库目录
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            try:
+                os.makedirs(db_dir)
+                logger.info(f"已自动创建数据库目录: {db_dir}")
+            except Exception as e:
+                logger.error(f"创建数据库目录失败: {e}")
+
         self.init_database()
 
     @contextmanager
@@ -46,6 +57,7 @@ class DatabaseManager:
             cursor = conn.cursor()
 
             # 创建POC关卡表
+            # [修改] 增加了 days_active 字段
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS poc_levels (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,12 +70,14 @@ class DatabaseManager:
                     pqpoc REAL,
                     ppqpoc REAL,
                     global_poc REAL,
+                    days_active INTEGER DEFAULT 9999,
                     timestamp TEXT NOT NULL,
                     UNIQUE(symbol, timestamp)
                 )
             """)
 
             # 创建突破事件表
+            # [修改] 增加了 cross_type 字段
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS crossover_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +89,7 @@ class DatabaseManager:
                     change_percent REAL NOT NULL,
                     impact_level INTEGER,
                     impact_emoji TEXT,
+                    cross_type TEXT DEFAULT 'UP',
                     timestamp TEXT NOT NULL,
                     notified INTEGER DEFAULT 0
                 )
@@ -122,20 +137,15 @@ class DatabaseManager:
     def save_poc_levels(self, poc_data: Dict[str, Any]) -> bool:
         """
         保存POC关卡数据
-
-        Args:
-            poc_data: POC数据字典
-
-        Returns:
-            是否保存成功
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                # [修改] 插入 days_active
                 cursor.execute("""
                     INSERT OR REPLACE INTO poc_levels
-                    (symbol, current_price, mpoc, pmpoc, ppmpoc, qpoc, pqpoc, ppqpoc, global_poc, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (symbol, current_price, mpoc, pmpoc, ppmpoc, qpoc, pqpoc, ppqpoc, global_poc, days_active, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     poc_data["symbol"],
                     poc_data["current_price"],
@@ -146,6 +156,7 @@ class DatabaseManager:
                     poc_data.get("pqpoc"),
                     poc_data.get("ppqpoc"),
                     poc_data.get("global_poc"),
+                    poc_data.get("days_active", 9999), # [新增]
                     poc_data.get("timestamp", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
                 ))
                 return True
@@ -156,21 +167,16 @@ class DatabaseManager:
     def save_crossover_event(self, event_data: Dict[str, Any]) -> bool:
         """
         保存突破事件
-
-        Args:
-            event_data: 事件数据字典
-
-        Returns:
-            是否保存成功
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                # [修改] 插入 cross_type
                 cursor.execute("""
                     INSERT INTO crossover_events
                     (symbol, poc_type, poc_value, price_before, price_after,
-                     change_percent, impact_level, impact_emoji, timestamp, notified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     change_percent, impact_level, impact_emoji, cross_type, timestamp, notified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     event_data["symbol"],
                     event_data["poc_type"],
@@ -180,6 +186,7 @@ class DatabaseManager:
                     event_data["change_percent"],
                     event_data.get("impact_level", 1),
                     event_data.get("impact_emoji", "➡️"),
+                    event_data.get("cross_type", "UP"), # [新增]
                     event_data.get("timestamp", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
                     event_data.get("notified", 0)
                 ))
@@ -190,16 +197,7 @@ class DatabaseManager:
             return False
 
     def save_price(self, symbol: str, price: float) -> bool:
-        """
-        保存价格历史
-
-        Args:
-            symbol: 交易对符号
-            price: 价格
-
-        Returns:
-            是否保存成功
-        """
+        """保存价格历史"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -217,15 +215,7 @@ class DatabaseManager:
             return False
 
     def get_latest_price(self, symbol: str) -> Optional[float]:
-        """
-        获取最新价格
-
-        Args:
-            symbol: 交易对符号
-
-        Returns:
-            最新价格
-        """
+        """获取最新价格"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -242,15 +232,7 @@ class DatabaseManager:
             return None
 
     def get_latest_poc_levels(self, symbol: str) -> Optional[Dict]:
-        """
-        获取最新的POC关卡
-
-        Args:
-            symbol: 交易对符号
-
-        Returns:
-            POC数据字典
-        """
+        """获取最新的POC关卡"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -267,12 +249,7 @@ class DatabaseManager:
             return None
 
     def get_all_latest_poc_levels(self) -> List[Dict]:
-        """
-        获取所有交易对的最新POC关卡
-
-        Returns:
-            POC数据列表
-        """
+        """获取所有交易对的最新POC关卡"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -296,17 +273,7 @@ class DatabaseManager:
         limit: int = 100,
         notified_only: bool = False
     ) -> List[Dict]:
-        """
-        获取突破事件
-
-        Args:
-            symbol: 交易对符号（可选）
-            limit: 返回数量限制
-            notified_only: 是否只返回已通知的事件
-
-        Returns:
-            事件列表
-        """
+        """获取突破事件"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -332,15 +299,7 @@ class DatabaseManager:
             return []
 
     def mark_event_as_notified(self, event_id: int) -> bool:
-        """
-        标记事件为已通知
-
-        Args:
-            event_id: 事件ID
-
-        Returns:
-            是否成功
-        """
+        """标记事件为已通知"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -355,16 +314,7 @@ class DatabaseManager:
             return False
 
     def query_by_condition(self, condition: str) -> List[Dict]:
-        """
-        根据条件查询POC数据
-
-        Args:
-            condition: SQL WHERE子句条件
-                例如: "current_price > qpoc AND current_price > pqpoc"
-
-        Returns:
-            符合条件的数据列表
-        """
+        """根据条件查询POC数据"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -385,12 +335,7 @@ class DatabaseManager:
             return []
 
     def get_statistics(self) -> Dict[str, Any]:
-        """
-        获取统计信息
-
-        Returns:
-            统计数据字典
-        """
+        """获取统计信息"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -425,12 +370,7 @@ class DatabaseManager:
             return {}
 
     def cleanup_old_data(self, days: int = 30):
-        """
-        清理旧数据
-
-        Args:
-            days: 保留天数
-        """
+        """清理旧数据"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -441,8 +381,14 @@ class DatabaseManager:
                     WHERE timestamp < datetime('now', '-' || ? || ' days')
                 """, (days,))
 
+                # [优化] 同时清理旧的POC数据
+                cursor.execute("""
+                    DELETE FROM poc_levels
+                    WHERE timestamp < datetime('now', '-' || ? || ' days')
+                """, (days,))
+
                 deleted_count = cursor.rowcount
-                logger.info(f"清理了 {deleted_count} 条旧价格记录")
+                logger.info(f"清理了 {deleted_count} 条旧记录")
 
         except Exception as e:
             logger.error(f"清理旧数据失败: {e}")
