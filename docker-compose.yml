@@ -84,8 +84,8 @@ services:
 
     # 数据持久化（只读）
     volumes:
-      - ./data:/app/data:ro
-      - ./logs:/app/logs:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
 
     # 依赖关系（等待监控服务先启动）
     depends_on:
