@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from auth import WebAuthenticator
+# from auth import WebAuthenticator
 from config import Config
 from database import DatabaseManager
 from poc_calculator import POCLevels
@@ -24,10 +24,10 @@ st.set_page_config(
 )
 
 # ==================== 访问控制 ====================
-if Config.ENABLE_WEB_AUTH:
-    authenticator = WebAuthenticator()
-    if not authenticator.require_authentication():
-        st.stop()
+# if Config.ENABLE_WEB_AUTH:
+#     authenticator = WebAuthenticator()
+#     if not authenticator.require_authentication():
+#         st.stop()
 
 # 初始化数据库
 @st.cache_resource
