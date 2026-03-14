@@ -113,28 +113,6 @@ services:
           memory: 128M
 
   # Nginx反向代理（可选，用于HTTPS和负载均衡）
-  nginx:
-    image: nginx:alpine
-    container_name: poc_nginx
-    restart: unless-stopped
-
-    ports:
-      - "80:80"
-      - "443:443"
-
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-
-    depends_on:
-      - poc-web
-
-    networks:
-      - poc_network
-
-    # 仅在需要HTTPS时启用
-    profiles:
-      - with-nginx
 
 networks:
   poc_network:
